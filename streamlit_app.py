@@ -25,36 +25,48 @@ def scrape_contacts(url):
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Tell Selenium where the system-installed Chromium is
     chrome_options.binary_location = "/usr/bin/chromium" 
 
     try:
-        # We skip ChromeDriverManager and use the system path
         service = Service("/usr/bin/chromedriver")
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
+        # 1. Scrape the Directory Page
         driver.get(url)
-        wait = WebDriverWait(driver, 15) # Increased wait for cloud latency
+        wait = WebDriverWait(driver, 15)
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "SFbizinf")))
+        time.sleep(2)
         
-        time.sleep(3)
         page_source = driver.page_source
+        emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', page_source)
+        phones = re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', page_source)
         
-        emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', page_source)))
-        phones = list(set(re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', page_source)))
-        
-        names = []
-        name_elements = driver.find_elements(By.CLASS_NAME, "SFbizctcnam")
-        for el in name_elements:
-            names.append(el.text.strip())
-            
+        names = [el.text.strip() for el in driver.find_elements(By.CLASS_NAME, "SFbizctcnam")]
+
+        # 2. Deep Dive: If no email, find the external website link
+        if not emails:
+            try:
+                # Look for the 'Website' link specifically
+                website_link_el = driver.find_element(By.CLASS_NAME, "SFbizctcweb")
+                external_url = website_link_el.get_attribute("href")
+                
+                if external_url:
+                    driver.get(external_url)
+                    time.sleep(3) # Wait for business site to load
+                    external_source = driver.page_source
+                    emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', external_source)
+                    # If we find phones on the main site, add them too
+                    external_phones = re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', external_source)
+                    phones.extend(external_phones)
+            except Exception:
+                pass # If there's no website link, we just move on
+
         driver.quit()
-        return emails, phones, names
+        return list(set(emails)), list(set(phones)), list(set(names))
         
     except Exception as e:
         if 'driver' in locals(): driver.quit()
         return None, None, str(e)
-
 # Streamlit UI
 st.set_page_config(page_title="Contact Scraper", page_icon="🔍")
 st.title("🔍 Web Contact Extractor")
