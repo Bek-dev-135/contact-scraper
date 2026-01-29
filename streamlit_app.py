@@ -3,39 +3,60 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import pandas as pd
+import streamlit as st
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
+import time
 
 # Regular Expressions for data extraction
 EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 # Matches various phone formats: (123) 456-7890, 123-456-7890, etc.
 PHONE_REGEX = r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}'
 
-def scrape_contacts(url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Extract Text
-        page_text = soup.get_text()
-        
-        # Find Matches
-        emails = list(set(re.findall(EMAIL_REGEX, page_text)))
-        phones = list(set(re.findall(PHONE_REGEX, page_text)))
-        
-        # Name extraction is tricky; here we look for common patterns near contact info
-        # This is a simplified approach looking at <a> tags and <h3> tags
-        names = []
-        for tag in soup.find_all(['h1', 'h2', 'h3', 'strong', 'b']):
-            clean_name = tag.get_text().strip()
-            if len(clean_name.split()) <= 3 and len(clean_name) > 2:
-                names.append(clean_name)
-        
-        return emails, phones, list(set(names))
-    
-    except Exception as e:
-        return None, None, str(e)
 
+
+def scrape_contacts(url):
+    # Setup Chrome options for headless mode (required for Cloud)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    try:
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+        driver.get(url)
+        
+        # Wait up to 10 seconds for the business info div to load
+        wait = WebDriverWait(driver, 10)
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "SFbizinf")))
+        
+        # Give it an extra second for any animations
+        time.sleep(2)
+        
+        page_source = driver.page_source
+        
+        # Extract matches
+        emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', page_source)))
+        phones = list(set(re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', page_source)))
+        
+        # Look specifically for the name in that class you found
+        names = []
+        name_elements = driver.find_elements(By.CLASS_NAME, "SFbizctcnam")
+        for el in name_elements:
+            names.append(el.text.strip())
+            
+        driver.quit()
+        return emails, phones, names
+        
+    except Exception as e:
+        if 'driver' in locals(): driver.quit()
+        return None, None, str(e)
 # Streamlit UI
 st.set_page_config(page_title="Contact Scraper", page_icon="🔍")
 st.title("🔍 Web Contact Extractor")
