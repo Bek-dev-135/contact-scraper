@@ -20,32 +20,29 @@ EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 PHONE_REGEX = r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}'
 
 
-
 def scrape_contacts(url):
-    # Setup Chrome options for headless mode (required for Cloud)
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    
+    # Tell Selenium where the system-installed Chromium is
+    chrome_options.binary_location = "/usr/bin/chromium" 
+
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-        driver.get(url)
+        # We skip ChromeDriverManager and use the system path
+        service = Service("/usr/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        # Wait up to 10 seconds for the business info div to load
-        wait = WebDriverWait(driver, 10)
+        driver.get(url)
+        wait = WebDriverWait(driver, 15) # Increased wait for cloud latency
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "SFbizinf")))
         
-        # Give it an extra second for any animations
-        time.sleep(2)
-        
+        time.sleep(3)
         page_source = driver.page_source
         
-        # Extract matches
         emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', page_source)))
         phones = list(set(re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', page_source)))
         
-        # Look specifically for the name in that class you found
         names = []
         name_elements = driver.find_elements(By.CLASS_NAME, "SFbizctcnam")
         for el in name_elements:
@@ -57,6 +54,7 @@ def scrape_contacts(url):
     except Exception as e:
         if 'driver' in locals(): driver.quit()
         return None, None, str(e)
+
 # Streamlit UI
 st.set_page_config(page_title="Contact Scraper", page_icon="🔍")
 st.title("🔍 Web Contact Extractor")
