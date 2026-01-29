@@ -4,5 +4,4 @@ beautifulsoup4
 pandas
 selenium
 webdriver-manager
-chromium
-chromium-driver
+
